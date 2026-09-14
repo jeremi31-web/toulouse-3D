@@ -1,59 +1,28 @@
 const express = require('express');
-const axios = require('axios');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-// Redirection du dossier de cache pour l'exécutable compilé
-let DATA_DIR;
-try {
-    const { app: electronApp } = require('electron');
-    // Dossier local de l'utilisateur (ex: AppData/Roaming/toulouse-data)
-    DATA_DIR = path.join(electronApp.getPath('userData'), 'toulouse-data');
-} catch (e) {
-    DATA_DIR = path.join(__dirname, 'data');
-}
-
-const DATA_FILE = path.join(DATA_DIR, 'toulouse.json');
 const app = express();
 const PORT = 3002;
 
-// Chemin absolu pour le dossier public (corrige l'écran blanc)
-app.use(express.static(path.join(__dirname, 'public')));
+// Chemin absolu pour le dossier public
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
 
-app.get('/api/buildings', async (req, res) => {
-    try {
-        if (!fs.existsSync(DATA_DIR)) {
-            fs.mkdirSync(DATA_DIR, { recursive: true });
+app.get('/api/buildings', (req, res) => {
+    // Au lieu d'appeler l'API Overpass qui échoue souvent,
+    // on sert directement le fichier échantillon inclus dans l'app.
+    const sampleDataPath = path.join(PUBLIC_DIR, 'toulouse_sample.json');
+    
+    fs.readFile(sampleDataPath, 'utf8', (err, data) => {
+        if (err) {
+            console.error("Erreur de lecture du fichier échantillon:", err);
+            return res.status(500).json({ error: 'Impossible de charger les données.' });
         }
-
-        if (fs.existsSync(DATA_FILE)) {
-            console.log('Serving from cache...');
-            const data = fs.readFileSync(DATA_FILE, 'utf8');
-            return res.type('json').send(data);
-        }
-
-        console.log('Fetching from Overpass API...');
-        // Requête ciblée sur le centre de Toulouse (Capitole)
-        const query = `
-            [out:json][timeout:25];
-            (
-              way["building"](43.5980, 1.4380, 43.6080, 1.4500);
-            );
-            out geom;
-        `;
-        
-        const response = await axios.post('https://overpass-api.de/api/interpreter', `data=${encodeURIComponent(query)}`);
-        
-        fs.writeFileSync(DATA_FILE, JSON.stringify(response.data));
-        console.log('Data cached successfully.');
-        
-        res.json(response.data);
-    } catch (error) {
-        console.error('Error:', error.message);
-        res.status(500).json({ error: 'Failed to fetch data' });
-    }
+        res.type('json').send(data);
+    });
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is running at http://localhost:${PORT}`);
+    console.log(`Serveur interne démarré sur http://localhost:${PORT}`);
 });
