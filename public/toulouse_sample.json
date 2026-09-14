@@ -1,0 +1,75 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.1 083c6d5d",
+  "osm3s": {
+    "timestamp_osm_base": "2024-05-15T12:00:00Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under the Open Database License."
+  },
+  "elements": [
+    {
+      "type": "way",
+      "id": 21976652,
+      "tags": {
+        "building": "civic",
+        "building:levels": "4",
+        "height": "18",
+        "name": "Capitole de Toulouse",
+        "wikidata": "wikidata",
+        "wikipedia": "fr:Capitole de Toulouse"
+      },
+      "geometry": [
+        {"lat": 43.604812, "lon": 1.443123},
+        {"lat": 43.604925, "lon": 1.443088},
+        {"lat": 43.604988, "lon": 1.443654},
+        {"lat": 43.604875, "lon": 1.443689},
+        {"lat": 43.604812, "lon": 1.443123}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 10000001,
+      "tags": {
+        "building": "apartments",
+        "building:levels": "5"
+      },
+      "geometry": [
+        {"lat": 43.604300, "lon": 1.442800},
+        {"lat": 43.604600, "lon": 1.442800},
+        {"lat": 43.604600, "lon": 1.443200},
+        {"lat": 43.604300, "lon": 1.443200},
+        {"lat": 43.604300, "lon": 1.442800}
+      ]
+    },
+     {
+      "type": "way",
+      "id": 10000002,
+      "tags": {
+        "building": "commercial",
+        "building:levels": "3"
+      },
+      "geometry": [
+        {"lat": 43.603900, "lon": 1.443500},
+        {"lat": 43.604100, "lon": 1.443500},
+        {"lat": 43.604100, "lon": 1.443900},
+        {"lat": 43.603900, "lon": 1.443900},
+        {"lat": 43.603900, "lon": 1.443500}
+      ]
+    },
+    {
+      "type": "way",
+      "id": 10000003,
+      "tags": {
+        "building": "apartments",
+        "building:levels": "6",
+        "height": "22"
+      },
+      "geometry": [
+        {"lat": 43.605100, "lon": 1.442500},
+        {"lat": 43.605400, "lon": 1.442500},
+        {"lat": 43.605400, "lon": 1.442900},
+        {"lat": 43.605100, "lon": 1.442900},
+        {"lat": 43.605100, "lon": 1.442500}
+      ]
+    }
+  ]
+}
