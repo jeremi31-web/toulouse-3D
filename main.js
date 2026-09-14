@@ -15,10 +15,10 @@ function createWindow () {
     }
   });
 
-  // Léger délai pour s'assurer que le serveur Express est prêt
+  // On attend 3 secondes pour s'assurer que le serveur Express est bien lancé
   setTimeout(() => {
     mainWindow.loadURL('http://localhost:3002');
-  }, 500);
+  }, 3000);
 }
 
 app.whenReady().then(() => {
