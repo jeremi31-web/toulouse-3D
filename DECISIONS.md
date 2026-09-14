@@ -1,0 +1,10 @@
+# Décisions techniques
+
+1. **Emprise géographique** : J'ai restreint la requête Overpass à une zone englobant l'hyper-centre de Toulouse (autour de la place du Capitole : lat 43.598 à 43.610, lon 1.438 à 1.450). Charger toute la ville ferait planter le navigateur du fait du nombre de polygones.
+2. **Format des données** : J'ai utilisé le paramètre `out geom;` dans la requête Overpass. Cela permet de récupérer directement les coordonnées (lat/lon) des bâtiments sans avoir à reconstituer les polygones via les noeuds (`nodes`), simplifiant ainsi grandement le parsing côté client.
+3. **Backend & Mise en cache** : Un serveur Node.js (Express) sert d'intermédiaire. Il interroge l'API Overpass lors du premier lancement, stocke le résultat brut dans `./data/toulouse.json`, et le sert directement aux requêtes suivantes. Cela évite d'être banni par l'API Overpass pour abus.
+4. **Moteur 3D (Three.js)** : 
+   - **Génération** : Les coordonnées GPS sont projetées sur un plan 2D local et converties en `THREE.Shape`. Elles sont ensuite extrudées (`THREE.ExtrudeGeometry`). La hauteur est déduite des tags OSM (`building:levels` ou `height`), avec une hauteur par défaut de 12 mètres.
+   - **Éclairage et Heure** : Un curseur gère l'heure de 0 à 24h. Le soleil (DirectionalLight) orbite autour de la scène. Ses couleurs (aube, midi, crépuscule) sont interpolées.
+   - **Fenêtres de nuit** : Plutôt que de générer des textures complexes, j'utilise la propriété `emissive` des matériaux. Quand la nuit tombe, les bâtiments prennent une teinte émissive (jaune/orange) de manière aléatoire simulant des fenêtres allumées, couplée au brouillard (`FogExp2`) noir de la nuit.
+5. **Dépendances** : Utilisation d'Express et Axios côté serveur, et import de Three.js via CDN (module) côté client pour un setup minimaliste.

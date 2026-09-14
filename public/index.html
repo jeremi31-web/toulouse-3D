@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Toulouse 3D Interactive</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #ui {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.8);
+            padding: 15px 30px;
+            border-radius: 30px;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        input[type=range] { width: 300px; cursor: pointer; }
+        #timeLabel { font-weight: bold; font-size: 18px; min-width: 60px; text-align: center; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; }
+    </style>
+    <!-- Import Maps pour Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="loading">Chargement des données de Toulouse...</div>
+    <div id="ui" style="display:none;">
+        <span>Heure:</span>
+        <input type="range" id="timeSlider" min="0" max="24" step="0.1" value="14">
+        <span id="timeLabel">14:00</span>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let sunLight, ambientLight;
+        const buildingMaterials = [];
+
+        // Constantes géographiques (Toulouse Capitole)
+        const CENTER_LAT = 43.604;
+        const CENTER_LON = 1.444;
+        const SCALE = 80000;
+
+        init();
+
+        function init() {
+            // Scène
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x87CEEB, 0.001);
+
+            // Caméra
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);
+            camera.position.set(0, 400, 600);
+
+            // Rendu
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // Contrôles
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.01; // Empêche de passer sous le sol
+
+            // Lumières
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            sunLight = new THREE.DirectionalLight(0xffffff, 2);
+            sunLight.castShadow = true;
+            sunLight.shadow.camera.left = -1000;
+            sunLight.shadow.camera.right = 1000;
+            sunLight.shadow.camera.top = 1000;
+            sunLight.shadow.camera.bottom = -1000;
+            sunLight.shadow.camera.near = 0.1;
+            sunLight.shadow.camera.far = 4000;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+
+            // Sol
+            const groundGeo = new THREE.PlaneGeometry(10000, 10000);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Events
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('timeSlider').addEventListener('input', updateTime);
+
+            // Charger les données
+            fetchData();
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch('/api/buildings');
+                const data = await res.json();
+                buildCity(data);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('ui').style.display = 'flex';
+                
+                updateTime(); // Initialiser la lumière
+                animate();
+            } catch (err) {
+                document.getElementById('loading').innerText = "Erreur de chargement.";
+                console.error(err);
+            }
+        }
+
+        function buildCity(data) {
+            const elements = data.elements || [];
+            
+            // Un seul matériau de base pour les bâtiments, cloné pour animer l'emissive individuellement
+            const baseMat = new THREE.MeshStandardMaterial({ 
+                color: 0xe0e0e0,
+                roughness: 0.6,
+                metalness: 0.1
+            });
+
+            elements.forEach(el => {
+                if (el.type !== 'way' || !el.geometry) return;
+
+                const shape = new THREE.Shape();
+                el.geometry.forEach((pt, index) => {
+                    // Conversion GPS -> Plan local
+                    const x = (pt.lon - CENTER_LON) * SCALE;
+                    const y = (pt.lat - CENTER_LAT) * SCALE;
+                    
+                    if (index === 0) shape.moveTo(x, y);
+                    else shape.lineTo(x, y);
+                });
+
+                let height = 12; // Défaut
+                if (el.tags) {
+                    if (el.tags.height) height = parseFloat(el.tags.height);
+                    else if (el.tags['building:levels']) height = parseFloat(el.tags['building:levels']) * 3.5;
+                }
+
+                const extrudeSettings = {
+                    depth: height,
+                    bevelEnabled: false
+                };
+
+                const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                
+                // Rotation pour redresser le bâtiment (Three.js extrude selon Z par défaut)
+                geometry.rotateX(-Math.PI / 2);
+                
+                const mat = baseMat.clone();
+                // Assigner un facteur "bureau/appart" aléatoire pour déterminer s'il s'allume la nuit
+                mat.userData.lightProbability = Math.random();
+                buildingMaterials.push(mat);
+
+                const mesh = new THREE.Mesh(geometry, mat);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+            });
+        }
+
+        function updateTime() {
+            const slider = document.getElementById('timeSlider');
+            const time = parseFloat(slider.value);
+            
+            // Format HH:MM
+            const hours = Math.floor(time);
+            const minutes = Math.floor((time - hours) * 60);
+            document.getElementById('timeLabel').innerText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+            // Calcul de la position du soleil (6h = aube, 12h = zénith, 18h = crépuscule)
+            // L'angle 0 est à l'Est (x=1, y=0)
+            const angle = ((time - 6) / 12) * Math.PI; 
+            const radius = 1000;
+            
+            sunLight.position.x = Math.cos(angle) * radius;
+            sunLight.position.y = Math.sin(angle) * radius;
+            sunLight.position.z = -Math.cos(angle) * 300; // Légère inclinaison Sud-Nord
+
+            // Nuit
+            const isNight = time < 6 || time > 18;
+            const twilight = (time >= 5 && time < 7) || (time > 17 && time <= 19);
+
+            if (sunLight.position.y < 0) {
+                sunLight.intensity = 0; // Sous l'horizon
+            } else {
+                sunLight.intensity = Math.sin(angle) * 2; // Maximum au zénith
+            }
+
+            // Couleurs du ciel et lumières
+            let skyColor, groundLight;
+            if (isNight && !twilight) {
+                skyColor = new THREE.Color(0x050510);
+                ambientLight.intensity = 0.1;
+                groundLight = 0x111111;
+            } else if (twilight) {
+                skyColor = new THREE.Color(0xff8c00); // Orange
+                ambientLight.intensity = 0.3;
+                sunLight.color.setHex(0xffaa55);
+                groundLight = 0x332222;
+            } else {
+                skyColor = new THREE.Color(0x87CEEB); // Jour
+                ambientLight.intensity = 0.6;
+                sunLight.color.setHex(0xffffff);
+                groundLight = 0x223322;
+            }
+
+            scene.fog.color = skyColor;
+            renderer.setClearColor(skyColor);
+
+            // Allumage des fenêtres
+            buildingMaterials.forEach(mat => {
+                if (isNight && mat.userData.lightProbability > 0.6) {
+                    mat.emissive.setHex(0xffcc44);
+                    mat.emissiveIntensity = 0.5 + Math.random() * 0.5;
+                } else if (twilight && mat.userData.lightProbability > 0.8) {
+                    mat.emissive.setHex(0xffcc44);
+                    mat.emissiveIntensity = 0.2;
+                } else {
+                    mat.emissive.setHex(0x000000);
+                    mat.emissiveIntensity = 0;
+                }
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
