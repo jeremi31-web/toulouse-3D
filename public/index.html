@@ -2,33 +2,19 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Toulouse 3D Interactive - Pro Edition</title>
+    <title>Toulouse 3D Interactive - Textures & Life</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, sans-serif; }
         #ui {
-            position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 15, 20, 0.85);
-            padding: 15px 40px;
-            border-radius: 50px;
-            color: #fff;
-            display: flex;
-            align-items: center;
-            gap: 25px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            transition: all 0.5s ease;
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 15, 20, 0.85); padding: 15px 40px; border-radius: 50px;
+            color: #fff; display: flex; align-items: center; gap: 25px;
+            backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: all 0.5s ease;
         }
-        input[type=range] { 
-            width: 350px; 
-            cursor: pointer; 
-            accent-color: #00d2ff;
-        }
+        input[type=range] { width: 350px; cursor: pointer; accent-color: #00d2ff; }
         #timeLabel { font-weight: 600; font-size: 20px; min-width: 65px; text-align: center; font-variant-numeric: tabular-nums; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; text-align: center; line-height: 1.5; background: rgba(0,0,0,0.7); padding: 30px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; text-align: center; line-height: 1.5; background: rgba(0,0,0,0.7); padding: 30px; border-radius: 15px; }
         .spinner { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #00d2ff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
@@ -42,9 +28,9 @@
     </script>
 </head>
 <body>
-    <div id="loading"><div class="spinner"></div>Construction de la ville...</div>
+    <div id="loading"><div class="spinner"></div>Génération de la ville vivante...</div>
     <div id="ui" style="display:none;">
-        <span style="opacity: 0.7; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Heure locale</span>
+        <span style="opacity: 0.7; font-size: 14px; text-transform: uppercase;">Heure locale</span>
         <input type="range" id="timeSlider" min="0" max="24" step="0.05" value="14">
         <span id="timeLabel">14:00</span>
     </div>
@@ -57,6 +43,9 @@
         let sunLight, ambientLight;
         const buildingMaterials = [];
         const edgeMaterials = [];
+        let trafficParticles;
+        const trafficData = [];
+        const TRAFFIC_COUNT = 1500;
 
         const CENTER_LAT = 43.6042;
         const CENTER_LON = 1.4435;
@@ -69,20 +58,20 @@
             scene.fog = new THREE.FogExp2(0xe0e0e0, 0.0008);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 15000);
-            camera.position.set(0, 600, 900);
+            camera.position.set(0, 500, 800);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             renderer.shadowMap.enabled = true;
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Ombres douces
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
 
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.maxPolarAngle = Math.PI / 2 - 0.05;
-            controls.minDistance = 100;
+            controls.maxPolarAngle = Math.PI / 2 - 0.02;
+            controls.minDistance = 50;
             controls.maxDistance = 3000;
 
             ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -101,25 +90,115 @@
             sunLight.shadow.bias = -0.0005;
             scene.add(sunLight);
 
-            // Sol principal
+            // Génération procédurale du sol (Asphalte granuleux)
+            const groundTex = generateNoiseTexture('#1a1a24', '#222230', 2, 20000);
+            groundTex.repeat.set(150, 150);
             const groundGeo = new THREE.PlaneGeometry(20000, 20000);
-            const groundMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, roughness: 1, metalness: 0 });
+            const groundMat = new THREE.MeshStandardMaterial({ 
+                color: 0x111115, roughness: 0.9, map: groundTex, bumpMap: groundTex, bumpScale: 0.5 
+            });
             const ground = new THREE.Mesh(groundGeo, groundMat);
             ground.rotation.x = -Math.PI / 2;
             ground.receiveShadow = true;
             scene.add(ground);
 
-            // Grille architecturale
-            const gridHelper = new THREE.GridHelper(20000, 400, 0x00d2ff, 0xffffff);
-            gridHelper.position.y = 0.1;
-            gridHelper.material.opacity = 0.1;
-            gridHelper.material.transparent = true;
-            scene.add(gridHelper);
+            initVegetation();
+            initTraffic();
 
             window.addEventListener('resize', onWindowResize);
             document.getElementById('timeSlider').addEventListener('input', updateTime);
 
             fetchData();
+        }
+
+        // Créateur de textures procédurales via Canvas 2D
+        function generateNoiseTexture(baseColor, noiseColor, dotSize, iterations) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillStyle = noiseColor;
+            for (let i = 0; i < iterations; i++) {
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, dotSize, dotSize);
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        // Instanciation de 2000 arbres (Très performant)
+        function initVegetation() {
+            const treeCount = 2000;
+            const geom = new THREE.ConeGeometry(3, 12, 5); 
+            geom.translate(0, 6, 0); // Base au niveau du sol
+            
+            const mat = new THREE.MeshStandardMaterial({ roughness: 1.0 });
+            const trees = new THREE.InstancedMesh(geom, mat, treeCount);
+            
+            const dummy = new THREE.Object3D();
+            const color = new THREE.Color();
+            
+            for (let i = 0; i < treeCount; i++) {
+                // Dispersion autour du centre
+                dummy.position.set((Math.random() - 0.5) * 3500, 0, (Math.random() - 0.5) * 3500);
+                dummy.rotation.y = Math.random() * Math.PI;
+                const scale = 0.5 + Math.random() * 0.8;
+                dummy.scale.set(scale, scale, scale);
+                dummy.updateMatrix();
+                trees.setMatrixAt(i, dummy.matrix);
+                
+                // Nuances de vert
+                color.setHSL(0.25 + Math.random() * 0.1, 0.4 + Math.random() * 0.3, 0.2 + Math.random() * 0.2);
+                trees.setColorAt(i, color);
+            }
+            trees.castShadow = true;
+            trees.receiveShadow = true;
+            scene.add(trees);
+        }
+
+        // Système de circulation urbaine
+        function initTraffic() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(TRAFFIC_COUNT * 3);
+            const colors = new Float32Array(TRAFFIC_COUNT * 3);
+            
+            for (let i = 0; i < TRAFFIC_COUNT; i++) {
+                // Alignement sur une grille virtuelle simulant des routes
+                const isHorizontal = Math.random() > 0.5;
+                let x, z;
+                if (isHorizontal) {
+                    x = (Math.random() - 0.5) * 4000;
+                    z = Math.round((Math.random() - 0.5) * 40) * 100;
+                } else {
+                    x = Math.round((Math.random() - 0.5) * 40) * 100;
+                    z = (Math.random() - 0.5) * 4000;
+                }
+                
+                positions[i*3] = x;
+                positions[i*3+1] = 1.5; // Hauteur des phares
+                positions[i*3+2] = z;
+                
+                const speed = (Math.random() * 3 + 1) * (Math.random() > 0.5 ? 1 : -1);
+                trafficData.push({ isHorizontal, speed });
+                
+                // Phares blancs à l'avant, feux rouges à l'arrière
+                const isForward = speed > 0;
+                const color = new THREE.Color(isForward ? 0xfff5dd : 0xff1111);
+                colors[i*3] = color.r;
+                colors[i*3+1] = color.g;
+                colors[i*3+2] = color.b;
+            }
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const material = new THREE.PointsMaterial({ 
+                size: 6, vertexColors: true, sizeAttenuation: true, 
+                transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending 
+            });
+            trafficParticles = new THREE.Points(geometry, material);
+            scene.add(trafficParticles);
         }
 
         async function fetchData() {
@@ -134,7 +213,7 @@
                 updateTime();
                 animate();
             } catch (err) {
-                document.getElementById('loading').innerHTML = "Erreur de chargement.<br>Vérifiez le fichier toulouse_sample.json";
+                document.getElementById('loading').innerHTML = "Erreur de chargement des bâtiments.";
                 console.error(err);
             }
         }
@@ -142,14 +221,14 @@
         function buildCity(data) {
             const elements = data.elements || [];
             
+            // Texture béton procédurale pour les façades
+            const concreteBump = generateNoiseTexture('#ffffff', '#cccccc', 1, 15000);
+            
             const baseMat = new THREE.MeshStandardMaterial({ 
-                color: 0xf5f5f5,
-                roughness: 0.8,
-                metalness: 0.1
+                color: 0xf0f0f0, roughness: 0.9, bumpMap: concreteBump, bumpScale: 0.2
             });
 
-            // Fonction pour générer la géométrie d'un bâtiment
-            const processShape = (geometryPoints, tags, isPart = false) => {
+            const processShape = (geometryPoints, tags) => {
                 if (!geometryPoints || geometryPoints.length < 3) return;
 
                 const shape = new THREE.Shape();
@@ -160,16 +239,12 @@
                     else shape.lineTo(x, y);
                 });
 
-                let height = 12; // Hauteur par défaut
+                let height = 12;
                 if (tags) {
                     if (tags.height) height = parseFloat(tags.height);
                     else if (tags['building:levels']) height = parseFloat(tags['building:levels']) * 3.5;
                 }
-                
-                // Variation aléatoire légère pour les toits plats
-                if (!tags || (!tags.height && !tags['building:levels'])) {
-                    height += Math.random() * 6 - 3;
-                }
+                if (!tags || (!tags.height && !tags['building:levels'])) height += Math.random() * 6 - 3;
 
                 const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
                 geometry.rotateX(-Math.PI / 2);
@@ -182,7 +257,6 @@
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
 
-                // Ajout des arêtes (Wireframe) pour le style maquette/cyberpunk
                 const edges = new THREE.EdgesGeometry(geometry);
                 const lineMat = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.3 });
                 const line = new THREE.LineSegments(edges, lineMat);
@@ -192,16 +266,10 @@
                 scene.add(mesh);
             };
 
-            // Traitement robuste (Façons simples et membres de relations)
             elements.forEach(el => {
-                if (el.type === 'way' && el.geometry) {
-                    processShape(el.geometry, el.tags);
-                } else if (el.type === 'relation' && el.members) {
-                    el.members.forEach(member => {
-                        if (member.type === 'way' && member.geometry) {
-                            processShape(member.geometry, el.tags); // Hérite des tags de la relation globale
-                        }
-                    });
+                if (el.type === 'way' && el.geometry) processShape(el.geometry, el.tags);
+                else if (el.type === 'relation' && el.members) {
+                    el.members.forEach(m => { if (m.type === 'way' && m.geometry) processShape(m.geometry, el.tags); });
                 }
             });
         }
@@ -215,7 +283,7 @@
             document.getElementById('timeLabel').innerText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 
             const angle = ((time - 6) / 12) * Math.PI; 
-            const radius = 2000;
+            const radius = 2500;
             
             sunLight.position.x = Math.cos(angle) * radius;
             sunLight.position.y = Math.sin(angle) * radius;
@@ -224,26 +292,23 @@
             const isNight = time < 5.5 || time > 18.5;
             const twilight = (time >= 5 && time < 7) || (time > 17.5 && time <= 19.5);
 
-            if (sunLight.position.y < 0) {
-                sunLight.intensity = 0;
-            } else {
-                sunLight.intensity = Math.sin(angle) * 3;
-            }
+            if (sunLight.position.y < 0) sunLight.intensity = 0;
+            else sunLight.intensity = Math.sin(angle) * 3;
 
             let skyColor, uiColor;
             if (isNight && !twilight) {
-                skyColor = new THREE.Color(0x0a0a14); // Nuit noire cyberpunk
-                ambientLight.intensity = 0.15;
+                skyColor = new THREE.Color(0x050508);
+                ambientLight.intensity = 0.1;
                 ambientLight.color.setHex(0x4444ff);
                 uiColor = "rgba(10, 10, 15, 0.85)";
             } else if (twilight) {
-                skyColor = new THREE.Color(0xff6b4a); // Crépuscule intense
+                skyColor = new THREE.Color(0xff5533);
                 ambientLight.intensity = 0.4;
                 ambientLight.color.setHex(0xffaa88);
                 sunLight.color.setHex(0xff7744);
                 uiColor = "rgba(40, 20, 15, 0.85)";
             } else {
-                skyColor = new THREE.Color(0xdbe9f4); // Jour clair style maquette
+                skyColor = new THREE.Color(0xb5d3e7);
                 ambientLight.intensity = 0.7;
                 ambientLight.color.setHex(0xffffff);
                 sunLight.color.setHex(0xffffff);
@@ -251,37 +316,36 @@
             }
 
             scene.fog.color = skyColor;
-            scene.fog.density = isNight ? 0.0006 : 0.0003;
+            scene.fog.density = isNight ? 0.0008 : 0.0003;
             renderer.setClearColor(skyColor);
             
             document.getElementById('ui').style.background = uiColor;
             document.getElementById('ui').style.color = (isNight || twilight) ? "#fff" : "#111";
+            
+            // Intensité des phares urbains
+            if(trafficParticles) {
+                trafficParticles.material.opacity = isNight ? 1.0 : (twilight ? 0.6 : 0.0);
+            }
 
-            // Mise à jour des matériaux (Bâtiments et Arêtes)
             buildingMaterials.forEach(mat => {
                 if (isNight && mat.userData.lightProbability > 0.5) {
-                    mat.emissive.setHex(0x00d2ff); // Fenêtres Cyan/Bleu neon
-                    mat.emissiveIntensity = 0.8 + Math.random() * 0.4;
+                    mat.emissive.setHex(0x00d2ff); 
+                    mat.emissiveIntensity = 0.6 + Math.random() * 0.4;
                     mat.color.setHex(0x111111);
                 } else if (twilight && mat.userData.lightProbability > 0.7) {
-                    mat.emissive.setHex(0xff9900); // Fenêtres Orange
-                    mat.emissiveIntensity = 0.5;
+                    mat.emissive.setHex(0xff9900);
+                    mat.emissiveIntensity = 0.4;
                     mat.color.setHex(0x555555);
                 } else {
                     mat.emissive.setHex(0x000000);
                     mat.emissiveIntensity = 0;
-                    mat.color.setHex(0xf5f5f5); // Blanc maquette
+                    mat.color.setHex(0xf0f0f0);
                 }
             });
 
             edgeMaterials.forEach(mat => {
-                if (isNight) {
-                    mat.color.setHex(0x003366);
-                    mat.opacity = 0.6;
-                } else {
-                    mat.color.setHex(0xcccccc);
-                    mat.opacity = 0.3;
-                }
+                mat.color.setHex(isNight ? 0x003366 : 0xcccccc);
+                mat.opacity = isNight ? 0.6 : 0.3;
             });
         }
 
@@ -293,6 +357,25 @@
 
         function animate() {
             requestAnimationFrame(animate);
+            
+            // Animation du trafic
+            if (trafficParticles) {
+                const pos = trafficParticles.geometry.attributes.position.array;
+                for (let i = 0; i < TRAFFIC_COUNT; i++) {
+                    const data = trafficData[i];
+                    if (data.isHorizontal) {
+                        pos[i*3] += data.speed;
+                        if (pos[i*3] > 2000) pos[i*3] = -2000;
+                        if (pos[i*3] < -2000) pos[i*3] = 2000;
+                    } else {
+                        pos[i*3+2] += data.speed;
+                        if (pos[i*3+2] > 2000) pos[i*3+2] = -2000;
+                        if (pos[i*3+2] < -2000) pos[i*3+2] = 2000;
+                    }
+                }
+                trafficParticles.geometry.attributes.position.needsUpdate = true;
+            }
+
             controls.update();
             renderer.render(scene, camera);
         }
