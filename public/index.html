@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Toulouse 3D Interactive - Textures & Life</title>
+    <title>Toulouse 3D Interactive - Textures HD</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, sans-serif; }
         #ui {
@@ -14,7 +14,7 @@
         }
         input[type=range] { width: 350px; cursor: pointer; accent-color: #00d2ff; }
         #timeLabel { font-weight: 600; font-size: 20px; min-width: 65px; text-align: center; font-variant-numeric: tabular-nums; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; text-align: center; line-height: 1.5; background: rgba(0,0,0,0.7); padding: 30px; border-radius: 15px; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; text-align: center; line-height: 1.5; background: rgba(0,0,0,0.8); padding: 30px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.2); }
         .spinner { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #00d2ff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
@@ -28,7 +28,7 @@
     </script>
 </head>
 <body>
-    <div id="loading"><div class="spinner"></div>Génération de la ville vivante...</div>
+    <div id="loading"><div class="spinner"></div>Peinture des façades et des toitures...</div>
     <div id="ui" style="display:none;">
         <span style="opacity: 0.7; font-size: 14px; text-transform: uppercase;">Heure locale</span>
         <input type="range" id="timeSlider" min="0" max="24" step="0.05" value="14">
@@ -41,8 +41,8 @@
 
         let scene, camera, renderer, controls;
         let sunLight, ambientLight;
-        const buildingMaterials = [];
-        const edgeMaterials = [];
+        let roofMaterial;
+        const wallMaterials = []; // On stocke les variantes pour la nuit
         let trafficParticles;
         const trafficData = [];
         const TRAFFIC_COUNT = 1500;
@@ -58,7 +58,7 @@
             scene.fog = new THREE.FogExp2(0xe0e0e0, 0.0008);
 
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 15000);
-            camera.position.set(0, 500, 800);
+            camera.position.set(0, 400, 600);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -90,18 +90,18 @@
             sunLight.shadow.bias = -0.0005;
             scene.add(sunLight);
 
-            // Génération procédurale du sol (Asphalte granuleux)
+            // Sol généré
             const groundTex = generateNoiseTexture('#1a1a24', '#222230', 2, 20000);
             groundTex.repeat.set(150, 150);
-            const groundGeo = new THREE.PlaneGeometry(20000, 20000);
             const groundMat = new THREE.MeshStandardMaterial({ 
-                color: 0x111115, roughness: 0.9, map: groundTex, bumpMap: groundTex, bumpScale: 0.5 
+                color: 0x111115, roughness: 0.9, map: groundTex 
             });
-            const ground = new THREE.Mesh(groundGeo, groundMat);
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(20000, 20000), groundMat);
             ground.rotation.x = -Math.PI / 2;
             ground.receiveShadow = true;
             scene.add(ground);
 
+            generateCityMaterials();
             initVegetation();
             initTraffic();
 
@@ -111,28 +111,98 @@
             fetchData();
         }
 
-        // Créateur de textures procédurales via Canvas 2D
+        // --- GÉNÉRATION DES TEXTURES DES BÂTIMENTS ---
+        function generateCityMaterials() {
+            // 1. Matériau des toits (Gris/Rouge brique texturé)
+            const canvasR = document.createElement('canvas');
+            canvasR.width = 256; canvasR.height = 256;
+            const ctxR = canvasR.getContext('2d');
+            ctxR.fillStyle = '#6e6259'; // Couleur tuile/béton
+            ctxR.fillRect(0, 0, 256, 256);
+            for(let i=0; i<8000; i++) { // Grain
+                ctxR.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
+                ctxR.fillRect(Math.random()*256, Math.random()*256, 2, 2);
+            }
+            const texRoof = new THREE.CanvasTexture(canvasR);
+            texRoof.wrapS = texRoof.wrapT = THREE.RepeatWrapping;
+            texRoof.repeat.set(0.02, 0.02);
+            roofMaterial = new THREE.MeshStandardMaterial({ map: texRoof, roughness: 0.9 });
+
+            // 2. Matériaux des façades (3 variantes pour casser la répétition)
+            for(let v = 0; v < 3; v++) {
+                const canvasW = document.createElement('canvas'); // Texture de jour (Murs + Vitres)
+                const canvasE = document.createElement('canvas'); // Texture de nuit (Lumières uniquement)
+                canvasW.width = 512; canvasW.height = 512;
+                canvasE.width = 512; canvasE.height = 512;
+                const ctxW = canvasW.getContext('2d');
+                const ctxE = canvasE.getContext('2d');
+                
+                // Mur de base
+                const wallColors = ['#d5d0c8', '#e0e0e0', '#c8cfd5'];
+                ctxW.fillStyle = wallColors[v];
+                ctxW.fillRect(0, 0, 512, 512);
+                ctxE.fillStyle = '#000000'; // Noir = pas de lumière
+                ctxE.fillRect(0, 0, 512, 512);
+                
+                // Dessin des fenêtres
+                const cols = 8; const rows = 8;
+                for(let i=0; i<cols; i++) {
+                    for(let j=0; j<rows; j++) {
+                        const x = i * (512/cols) + 12;
+                        const y = j * (512/rows) + 15;
+                        const w = (512/cols) - 24;
+                        const h = (512/rows) - 30;
+                        
+                        // Vitre de jour (Bleu/Gris sombre)
+                        ctxW.fillStyle = '#3a4a5a';
+                        ctxW.fillRect(x, y, w, h);
+                        
+                        // Reflet sur la vitre
+                        ctxW.fillStyle = 'rgba(255,255,255,0.15)';
+                        ctxW.beginPath(); ctxW.moveTo(x, y); ctxW.lineTo(x+w, y+h); ctxW.lineTo(x, y+h); ctxW.fill();
+                        
+                        // Lumière de nuit (aléatoire)
+                        if (Math.random() > 0.6) {
+                            ctxE.fillStyle = Math.random() > 0.4 ? '#ffdd88' : '#aaddff'; // Lumière chaude ou froide
+                            ctxE.fillRect(x, y, w, h);
+                        }
+                    }
+                }
+                
+                const texWall = new THREE.CanvasTexture(canvasW);
+                const texEmissive = new THREE.CanvasTexture(canvasE);
+                texWall.wrapS = texWall.wrapT = texEmissive.wrapS = texEmissive.wrapT = THREE.RepeatWrapping;
+                
+                // Échelle de répétition pour que les fenêtres aient une taille réaliste
+                texWall.repeat.set(0.04, 0.25);
+                texEmissive.repeat.set(0.04, 0.25);
+
+                wallMaterials.push(new THREE.MeshStandardMaterial({
+                    map: texWall,
+                    roughness: 0.6,
+                    emissiveMap: texEmissive,
+                    emissive: new THREE.Color(0xffffff),
+                    emissiveIntensity: 0 // Éteint le jour
+                }));
+            }
+        }
+
         function generateNoiseTexture(baseColor, noiseColor, dotSize, iterations) {
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 256;
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = baseColor;
-            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillStyle = baseColor; ctx.fillRect(0, 0, 256, 256);
             ctx.fillStyle = noiseColor;
-            for (let i = 0; i < iterations; i++) {
-                ctx.fillRect(Math.random() * 256, Math.random() * 256, dotSize, dotSize);
-            }
+            for (let i = 0; i < iterations; i++) ctx.fillRect(Math.random() * 256, Math.random() * 256, dotSize, dotSize);
             const tex = new THREE.CanvasTexture(canvas);
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
             return tex;
         }
 
-        // Instanciation de 2000 arbres (Très performant)
         function initVegetation() {
             const treeCount = 2000;
             const geom = new THREE.ConeGeometry(3, 12, 5); 
-            geom.translate(0, 6, 0); // Base au niveau du sol
-            
+            geom.translate(0, 6, 0); 
             const mat = new THREE.MeshStandardMaterial({ roughness: 1.0 });
             const trees = new THREE.InstancedMesh(geom, mat, treeCount);
             
@@ -140,7 +210,6 @@
             const color = new THREE.Color();
             
             for (let i = 0; i < treeCount; i++) {
-                // Dispersion autour du centre
                 dummy.position.set((Math.random() - 0.5) * 3500, 0, (Math.random() - 0.5) * 3500);
                 dummy.rotation.y = Math.random() * Math.PI;
                 const scale = 0.5 + Math.random() * 0.8;
@@ -148,48 +217,32 @@
                 dummy.updateMatrix();
                 trees.setMatrixAt(i, dummy.matrix);
                 
-                // Nuances de vert
                 color.setHSL(0.25 + Math.random() * 0.1, 0.4 + Math.random() * 0.3, 0.2 + Math.random() * 0.2);
                 trees.setColorAt(i, color);
             }
-            trees.castShadow = true;
-            trees.receiveShadow = true;
+            trees.castShadow = true; trees.receiveShadow = true;
             scene.add(trees);
         }
 
-        // Système de circulation urbaine
         function initTraffic() {
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(TRAFFIC_COUNT * 3);
             const colors = new Float32Array(TRAFFIC_COUNT * 3);
             
             for (let i = 0; i < TRAFFIC_COUNT; i++) {
-                // Alignement sur une grille virtuelle simulant des routes
                 const isHorizontal = Math.random() > 0.5;
-                let x, z;
-                if (isHorizontal) {
-                    x = (Math.random() - 0.5) * 4000;
-                    z = Math.round((Math.random() - 0.5) * 40) * 100;
-                } else {
-                    x = Math.round((Math.random() - 0.5) * 40) * 100;
-                    z = (Math.random() - 0.5) * 4000;
-                }
+                let x = isHorizontal ? (Math.random() - 0.5) * 4000 : Math.round((Math.random() - 0.5) * 40) * 100;
+                let z = isHorizontal ? Math.round((Math.random() - 0.5) * 40) * 100 : (Math.random() - 0.5) * 4000;
                 
-                positions[i*3] = x;
-                positions[i*3+1] = 1.5; // Hauteur des phares
-                positions[i*3+2] = z;
+                positions[i*3] = x; positions[i*3+1] = 1.5; positions[i*3+2] = z;
                 
                 const speed = (Math.random() * 3 + 1) * (Math.random() > 0.5 ? 1 : -1);
                 trafficData.push({ isHorizontal, speed });
                 
-                // Phares blancs à l'avant, feux rouges à l'arrière
                 const isForward = speed > 0;
                 const color = new THREE.Color(isForward ? 0xfff5dd : 0xff1111);
-                colors[i*3] = color.r;
-                colors[i*3+1] = color.g;
-                colors[i*3+2] = color.b;
+                colors[i*3] = color.r; colors[i*3+1] = color.g; colors[i*3+2] = color.b;
             }
-            
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
             
@@ -213,20 +266,12 @@
                 updateTime();
                 animate();
             } catch (err) {
-                document.getElementById('loading').innerHTML = "Erreur de chargement des bâtiments.";
-                console.error(err);
+                document.getElementById('loading').innerHTML = "Erreur de chargement des données.";
             }
         }
 
         function buildCity(data) {
             const elements = data.elements || [];
-            
-            // Texture béton procédurale pour les façades
-            const concreteBump = generateNoiseTexture('#ffffff', '#cccccc', 1, 15000);
-            
-            const baseMat = new THREE.MeshStandardMaterial({ 
-                color: 0xf0f0f0, roughness: 0.9, bumpMap: concreteBump, bumpScale: 0.2
-            });
 
             const processShape = (geometryPoints, tags) => {
                 if (!geometryPoints || geometryPoints.length < 3) return;
@@ -235,8 +280,7 @@
                 geometryPoints.forEach((pt, index) => {
                     const x = (pt.lon - CENTER_LON) * SCALE;
                     const y = (pt.lat - CENTER_LAT) * SCALE;
-                    if (index === 0) shape.moveTo(x, y);
-                    else shape.lineTo(x, y);
+                    if (index === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
                 });
 
                 let height = 12;
@@ -246,23 +290,15 @@
                 }
                 if (!tags || (!tags.height && !tags['building:levels'])) height += Math.random() * 6 - 3;
 
+                // Application des matériaux : Index 0 (Toit/Sol), Index 1 (Façades)
                 const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
                 geometry.rotateX(-Math.PI / 2);
                 
-                const mat = baseMat.clone();
-                mat.userData.lightProbability = Math.random();
-                buildingMaterials.push(mat);
-
-                const mesh = new THREE.Mesh(geometry, mat);
+                const randomWallMat = wallMaterials[Math.floor(Math.random() * wallMaterials.length)];
+                
+                const mesh = new THREE.Mesh(geometry, [roofMaterial, randomWallMat]);
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
-
-                const edges = new THREE.EdgesGeometry(geometry);
-                const lineMat = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.3 });
-                const line = new THREE.LineSegments(edges, lineMat);
-                edgeMaterials.push(lineMat);
-                mesh.add(line);
-
                 scene.add(mesh);
             };
 
@@ -298,7 +334,7 @@
             let skyColor, uiColor;
             if (isNight && !twilight) {
                 skyColor = new THREE.Color(0x050508);
-                ambientLight.intensity = 0.1;
+                ambientLight.intensity = 0.15;
                 ambientLight.color.setHex(0x4444ff);
                 uiColor = "rgba(10, 10, 15, 0.85)";
             } else if (twilight) {
@@ -322,30 +358,17 @@
             document.getElementById('ui').style.background = uiColor;
             document.getElementById('ui').style.color = (isNight || twilight) ? "#fff" : "#111";
             
-            // Intensité des phares urbains
-            if(trafficParticles) {
-                trafficParticles.material.opacity = isNight ? 1.0 : (twilight ? 0.6 : 0.0);
-            }
+            if(trafficParticles) trafficParticles.material.opacity = isNight ? 1.0 : (twilight ? 0.6 : 0.0);
 
-            buildingMaterials.forEach(mat => {
-                if (isNight && mat.userData.lightProbability > 0.5) {
-                    mat.emissive.setHex(0x00d2ff); 
-                    mat.emissiveIntensity = 0.6 + Math.random() * 0.4;
-                    mat.color.setHex(0x111111);
-                } else if (twilight && mat.userData.lightProbability > 0.7) {
-                    mat.emissive.setHex(0xff9900);
-                    mat.emissiveIntensity = 0.4;
-                    mat.color.setHex(0x555555);
+            // Allumage / Extinction des fenêtres des façades
+            wallMaterials.forEach(mat => {
+                if (isNight) {
+                    mat.emissiveIntensity = 1.0; 
+                } else if (twilight) {
+                    mat.emissiveIntensity = 0.5;
                 } else {
-                    mat.emissive.setHex(0x000000);
-                    mat.emissiveIntensity = 0;
-                    mat.color.setHex(0xf0f0f0);
+                    mat.emissiveIntensity = 0.0;
                 }
-            });
-
-            edgeMaterials.forEach(mat => {
-                mat.color.setHex(isNight ? 0x003366 : 0xcccccc);
-                mat.opacity = isNight ? 0.6 : 0.3;
             });
         }
 
@@ -358,7 +381,6 @@
         function animate() {
             requestAnimationFrame(animate);
             
-            // Animation du trafic
             if (trafficParticles) {
                 const pos = trafficParticles.geometry.attributes.position.array;
                 for (let i = 0; i < TRAFFIC_COUNT; i++) {
